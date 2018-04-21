@@ -14,6 +14,10 @@ import (
 	"fmt"
 
 	"github.com/ncw/rclone/fs"
+	"github.com/ncw/rclone/fs/config/obscure"
+	"github.com/ncw/rclone/fs/fserrors"
+	"github.com/ncw/rclone/fs/fshttp"
+	"github.com/ncw/rclone/fs/hash"
 	"github.com/ncw/rclone/lib/dircache"
 	"github.com/ncw/rclone/lib/pacer"
 	"github.com/ncw/rclone/lib/rest"
@@ -106,8 +110,8 @@ func (f *Fs) Features() *fs.Features {
 }
 
 // Hashes returns the supported hash sets.
-func (f *Fs) Hashes() fs.HashSet {
-	return fs.HashSet(fs.HashMD5)
+func (f *Fs) Hashes() hash.Set {
+	return hash.Set(hash.MD5)
 }
 
 // NewFs contstructs an Fs from the path, bucket:path
@@ -118,7 +122,7 @@ func NewFs(name, root string) (fs.Fs, error) {
 	if username == "" {
 		return nil, errors.New("username not found")
 	}
-	password, err := fs.Reveal(fs.ConfigFileGet(name, "password"))
+	password, err := obscure.Reveal(fs.ConfigFileGet(name, "password"))
 	if err != nil {
 		return nil, errors.New("password coudl not revealed")
 	}
@@ -134,7 +138,7 @@ func NewFs(name, root string) (fs.Fs, error) {
 		username: username,
 		password: password,
 		root:     root,
-		srv:      rest.NewClient(fs.Config.Client()).SetErrorHandler(errorHandler),
+		srv:      rest.NewClient(fshttp.NewClient(fs.Config)).SetErrorHandler(errorHandler),
 		pacer:    pacer.New().SetMinSleep(minSleep).SetMaxSleep(maxSleep).SetDecayConstant(decayConstant),
 	}
 
@@ -239,9 +243,9 @@ func (f *Fs) deleteObject(id string) error {
 	return f.pacer.Call(func() (bool, error) {
 		removeDirData := removeFolder{SessionID: f.session.SessionID, FolderID: id}
 		opts := rest.Opts{
-			Method: "POST",
+			Method:     "POST",
 			NoResponse: true,
-			Path:   "/folder/remove.json",
+			Path:       "/folder/remove.json",
 		}
 		resp, err := f.srv.CallJSON(&opts, &removeDirData, nil)
 		return f.shouldRetry(resp, err)
@@ -647,7 +651,7 @@ var retryErrorCodes = []int{
 // shouldRetry returns a boolean as to whether this resp and err
 // deserve to be retried.  It returns the err as a convenience
 func (f *Fs) shouldRetry(resp *http.Response, err error) (bool, error) {
-	return fs.ShouldRetry(err) || fs.ShouldRetryHTTP(resp, retryErrorCodes), err
+	return fserrors.ShouldRetry(err) || fserrors.ShouldRetryHTTP(resp, retryErrorCodes), err
 }
 
 // DirCacher methods
@@ -659,13 +663,13 @@ func (f *Fs) CreateDir(pathID, leaf string) (newID string, err error) {
 	response := createFolderResponse{}
 	err = f.pacer.Call(func() (bool, error) {
 		createDirData := createFolder{
-			SessionID: f.session.SessionID,
-			FolderName: replaceReservedChars(leaf),
-			FolderSubParent: pathID,
-			FolderIsPublic: 0,
-			FolderPublicUpl: 0,
+			SessionID:           f.session.SessionID,
+			FolderName:          replaceReservedChars(leaf),
+			FolderSubParent:     pathID,
+			FolderIsPublic:      0,
+			FolderPublicUpl:     0,
 			FolderPublicDisplay: 0,
-			FolderPublicDnl: 0,
+			FolderPublicDnl:     0,
 		}
 		opts := rest.Opts{
 			Method: "POST",
@@ -802,9 +806,9 @@ func (o *Object) Remote() string {
 }
 
 // Hash returns the Md5sum of an object returning a lowercase hex string
-func (o *Object) Hash(t fs.HashType) (string, error) {
-	if t != fs.HashMD5 {
-		return "", fs.ErrHashUnsupported
+func (o *Object) Hash(t hash.Type) (string, error) {
+	if t != hash.MD5 {
+		return "", hash.ErrUnsupported
 	}
 	return o.md5, nil
 }
@@ -827,9 +831,9 @@ func (o *Object) ModTime() time.Time {
 func (o *Object) SetModTime(modTime time.Time) error {
 	fs.Debugf(nil, "SetModTime(%v)", modTime.String())
 	opts := rest.Opts{
-		Method: "PUT",
+		Method:     "PUT",
 		NoResponse: true,
-		Path: "/file/filesettings.json",
+		Path:       "/file/filesettings.json",
 	}
 	update := modTimeFile{SessionID: o.fs.session.SessionID, FileID: o.id, FileModificationTime: strconv.FormatInt(modTime.Unix(), 10)}
 	err := o.fs.pacer.Call(func() (bool, error) {
@@ -877,9 +881,9 @@ func (o *Object) Remove() error {
 	fs.Debugf(nil, "Remove(\"%s\")", o.id)
 	return o.fs.pacer.Call(func() (bool, error) {
 		opts := rest.Opts{
-			Method: "DELETE",
+			Method:     "DELETE",
 			NoResponse: true,
-			Path:   "/file.json/" + o.fs.session.SessionID + "/" + o.id,
+			Path:       "/file.json/" + o.fs.session.SessionID + "/" + o.id,
 		}
 		resp, err := o.fs.srv.Call(&opts)
 		return o.fs.shouldRetry(resp, err)
@@ -1038,9 +1042,9 @@ func (o *Object) Update(in io.Reader, src fs.ObjectInfo, options ...fs.OpenOptio
 		update := permissions{SessionID: o.fs.session.SessionID, FileID: o.id, FileIsPublic: 0}
 		fs.Debugf(nil, "Permissions : %#v", update)
 		opts := rest.Opts{
-			Method: "POST",
+			Method:     "POST",
 			NoResponse: true,
-			Path:   "/file/access.json",
+			Path:       "/file/access.json",
 		}
 		resp, err = o.fs.srv.CallJSON(&opts, &update, nil)
 		return o.fs.shouldRetry(resp, err)
