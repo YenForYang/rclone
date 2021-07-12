@@ -67,7 +67,7 @@ const (
 	defaultScope                = "drive"
 	// chunkSize is the size of the chunks created during a resumable upload and should be a power of two.
 	// 1<<18 is the minimum size supported by the Google uploader, and there is no maximum.
-	minChunkSize     = googleapi.MinUploadChunkSize
+	minChunkSize     =  fs.SizeSuffix(googleapi.MinUploadChunkSize)
 	defaultChunkSize = 8 * fs.Mebi
 	partialFields    = "id,name,size,md5Checksum,trashed,explicitlyTrashed,modifiedTime,createdTime,mimeType,parents,webViewLink,shortcutDetails,exportLinks"
 	listRGrouping    = 50   // number of IDs to search at once when using ListR
